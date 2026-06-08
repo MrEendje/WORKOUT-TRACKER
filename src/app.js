@@ -363,14 +363,20 @@ function showScheduleModal(iso, scheduled) {
 function showWorkoutSummaryModal(workout) {
   const content = el('div', 'space-y-2');
   workout.exercises.forEach(ex => {
-    const exercise = state.exercises.find(e => e.id === ex.exerciseId) || { name: 'Unknown', emoji: '🏋️' };
+    const exercise = state.exercises.find(e => e.id === ex.exerciseId) || { name: 'Unknown', emoji: '🏋️', trackingType: 'reps' };
+    const tt = getTrackingType(exercise);
     const wrap = el('div', 'border-b pb-3');
     const title = el('div', 'flex items-center gap-2 mb-1');
-    title.innerHTML = `<div class="text-2xl">${exercise.emoji}</div><div class="font-semibold">${exercise.name}</div>`;
+    title.innerHTML = `
+      <div class="text-2xl">${exercise.emoji}</div>
+      <div>
+        <div class="font-semibold">${exercise.name}</div>
+        <div class="text-xs text-slate-400">${tt.icon} ${tt.label}</div>
+      </div>`;
     wrap.appendChild(title);
     ex.sets.forEach((s, i) => {
       const set = el('div', 'text-sm text-slate-600 ml-10');
-      set.textContent = `Set ${i + 1}: ${s.weight} kg × ${s.reps} reps`;
+      set.textContent = formatSet(s, tt, i + 1);
       wrap.appendChild(set);
     });
     content.appendChild(wrap);
@@ -384,6 +390,24 @@ function showWorkoutSummaryModal(workout) {
   content.appendChild(closeBtn);
 
   showModal(content, `Workout — ${workout.date}`);
+}
+
+function formatSet(s, tt, setNum) {
+  const prefix = `Set ${setNum}: `;
+  if (tt.value === 'distance') {
+    return prefix + `${s.distance ?? 0} m` + (s.seconds ? ` · ${formatSeconds(s.seconds)}` : '');
+  } else if (tt.value === 'time') {
+    return prefix + (s.weight ? `${s.weight} kg · ` : '') + formatSeconds(s.seconds ?? 0);
+  } else {
+    return prefix + `${s.weight ?? 0} kg × ${s.reps ?? 0} reps`;
+  }
+}
+
+function formatSeconds(sec) {
+  if (!sec) return '0s';
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
 /* ── Catalog ─────────────────────────────────────────────── */
@@ -712,27 +736,32 @@ function openWorkoutEditor(exerciseIds = []) {
     const workout = { id: uid('wo'), date: todayISO(), exercises: [] };
 
     for (const b of blocks) {
-      const nameEl = b.querySelector('.font-semibold');
-      if (!nameEl) continue;
-      const title = nameEl.textContent;
-      const ex = state.exercises.find(e => e.name === title) ||
-        { id: uid('ex'), name: title, emoji: '🏋️' };
+      const exId = b.dataset.exId;
+      const ex = state.exercises.find(e => e.id === exId) || { id: uid('ex'), name: 'Custom', emoji: '🏋️', trackingType: 'reps' };
+      const tt = getTrackingType(ex);
 
-      const setRows = b.querySelectorAll('div.flex.gap-2.items-center');
       const collectedSets = [];
-      for (const sr of setRows) {
+      for (const sr of b.querySelectorAll('div.flex.gap-2.items-center')) {
         const inputs = sr.querySelectorAll('input');
         if (inputs.length < 2) continue;
-        const weight = parseFloat(inputs[0].value) || 0;
-        const reps = parseInt(inputs[1].value) || 0;
-        if (weight > 0 && reps > 0) collectedSets.push({ weight, reps });
+        const v1 = parseFloat(inputs[0].value) || 0;
+        const v2 = parseFloat(inputs[1].value) || 0;
+        if (v1 > 0 || v2 > 0) {
+          if (tt.value === 'distance') {
+            collectedSets.push({ distance: v1, seconds: v2, trackingType: tt.value });
+          } else if (tt.value === 'time') {
+            collectedSets.push({ weight: v1, seconds: v2, trackingType: tt.value });
+          } else {
+            collectedSets.push({ weight: v1, reps: v2, trackingType: tt.value });
+          }
+        }
       }
       if (collectedSets.length > 0) {
         workout.exercises.push({ exerciseId: ex.id, sets: collectedSets });
       }
     }
 
-    if (workout.exercises.length === 0) { alert('Log at least one set with weight and reps'); return; }
+    if (workout.exercises.length === 0) { alert('Log at least one set'); return; }
 
     state.workouts.push(workout);
     checkAndUpdatePRs(workout);
