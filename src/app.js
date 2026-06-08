@@ -48,7 +48,13 @@ let state = loadState();
 
 /* ── Utilities ───────────────────────────────────────────── */
 function uid(p = 'id') { return p + '-' + Math.random().toString(36).slice(2, 9); }
-function todayISO(d = new Date()) { return d.toISOString().slice(0, 10); }
+// Use local date parts to avoid UTC timezone shift (toISOString() always returns UTC)
+function todayISO(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 function getRoutineColor(r) { return ROUTINE_COLORS[(r?.colorIndex ?? 0) % ROUTINE_COLORS.length]; }
 function getTrackingType(ex) {
   return TRACKING_TYPES.find(t => t.value === (ex?.trackingType || 'reps')) || TRACKING_TYPES[0];
@@ -281,6 +287,9 @@ function showWorkoutSummaryModal(workout) {
 }
 
 /* ── Categories ──────────────────────────────────────────── */
+// Persist which categories are collapsed across re-renders
+const collapsedCategories = new Set();
+
 function renderCatalog(filter = '') {
   const list = document.getElementById('catalog-list');
   list.innerHTML = '';
@@ -324,11 +333,13 @@ function renderCatalog(filter = '') {
     catBtns.append(editCat, delCat);
     catHeader.append(left, catBtns);
 
-    // Toggle collapse
-    let collapsed = false;
+    // Toggle collapse — persist state
+    let collapsed = collapsedCategories.has(cat.id);
     const body = el('div', 'divide-y divide-slate-100');
+    if (collapsed) { body.style.display = 'none'; arrow.style.transform = 'rotate(-90deg)'; }
     catHeader.addEventListener('click', () => {
       collapsed = !collapsed;
+      if (collapsed) collapsedCategories.add(cat.id); else collapsedCategories.delete(cat.id);
       body.style.display = collapsed ? 'none' : '';
       arrow.style.transform = collapsed ? 'rotate(-90deg)' : '';
     });
@@ -537,10 +548,13 @@ function renderRoutines() {
     const btns  = el('div', 'flex gap-2 shrink-0');
     const start = el('button', 'px-3 py-1.5 text-white rounded-xl text-sm font-medium touch-btn'); start.style.backgroundColor = c.bg; start.textContent = 'Start';
     start.addEventListener('click', () => startWorkoutFromRoutine(r.id));
+    const editBtn = el('button', 'px-2 py-1.5 rounded-xl bg-white/60 text-sky-500 touch-btn');
+    editBtn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 112.828 2.828L11.828 15.828a2 2 0 01-1.414.586H9v-2a2 2 0 01.586-1.414z"/></svg>`;
+    editBtn.addEventListener('click', () => showEditRoutineModal(r));
     const del = el('button', 'px-2 py-1.5 rounded-xl bg-white/60 text-red-500 touch-btn');
     del.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7h6m2 0a1 1 0 00-1-1h-4a1 1 0 00-1 1H5"/></svg>`;
     del.addEventListener('click', () => { state.routines = state.routines.filter(rr => rr.id !== r.id); saveState(state); renderRoutines(); });
-    btns.append(start, del); inner.append(bar, left, btns); card.appendChild(inner); list.appendChild(card);
+    btns.append(start, editBtn, del); inner.append(bar, left, btns); card.appendChild(inner); list.appendChild(card);
   });
 }
 
@@ -645,6 +659,98 @@ function showNewRoutineModal() {
   content.appendChild(saveBtn);
 
   showModal(content, 'New Routine');
+  setTimeout(() => nameInput.focus(), 100);
+}
+
+/* ── Edit Routine Modal ──────────────────────────────────── */
+function showEditRoutineModal(routine) {
+  const content = el('div', 'space-y-3');
+
+  // Name
+  const nameInput = el('input', 'w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-sky-400');
+  nameInput.placeholder = 'Routine name';
+  nameInput.value = routine.name;
+  content.appendChild(nameInput);
+
+  // Color picker
+  const colorLabel = el('p', 'text-sm font-medium text-slate-600'); colorLabel.textContent = 'Color';
+  content.appendChild(colorLabel);
+  let selectedColorIndex = routine.colorIndex ?? 0;
+  const colorGrid = el('div', 'flex flex-wrap gap-2');
+  ROUTINE_COLORS.forEach((c, i) => {
+    const sw = el('button', 'color-swatch touch-btn' + (i === selectedColorIndex ? ' selected' : ''));
+    sw.style.backgroundColor = c.bg; sw.title = c.name; sw.setAttribute('type', 'button');
+    sw.addEventListener('click', () => {
+      selectedColorIndex = i;
+      colorGrid.querySelectorAll('.color-swatch').forEach((s, j) => s.classList.toggle('selected', j === i));
+    });
+    colorGrid.appendChild(sw);
+  });
+  content.appendChild(colorGrid);
+
+  // Exercise search
+  const searchLabel = el('p', 'text-sm font-medium text-slate-600'); searchLabel.textContent = 'Exercises';
+  content.appendChild(searchLabel);
+  const searchWrap = el('div', 'relative flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 mb-1');
+  const searchIcon = el('span', 'text-slate-400 text-sm shrink-0'); searchIcon.textContent = '🔍';
+  const searchInput = el('input', 'flex-1 py-2.5 px-2 bg-transparent outline-none text-sm');
+  searchInput.placeholder = 'Search exercises…';
+  searchWrap.append(searchIcon, searchInput);
+  content.appendChild(searchWrap);
+
+  // Exercise list
+  const exList = el('div', 'grid gap-1.5 max-h-56 overflow-y-auto modal-scroll');
+  content.appendChild(exList);
+
+  function renderExList(filter = '') {
+    // save current checked state before clearing
+    const checked = new Set(Array.from(exList.querySelectorAll('input:checked')).map(i => i.value));
+    exList.innerHTML = '';
+    const filtered = filter
+      ? state.exercises.filter(ex => ex.name.toLowerCase().includes(filter.toLowerCase()))
+      : state.exercises;
+
+    if (!filtered.length) {
+      const empty = el('p', 'text-sm text-slate-400 text-center py-3');
+      empty.textContent = filter ? 'No exercises match.' : 'No exercises yet.'; exList.appendChild(empty); return;
+    }
+
+    const byCategory = {};
+    filtered.forEach(ex => { const k = ex.categoryId || '__none__'; if (!byCategory[k]) byCategory[k] = []; byCategory[k].push(ex); });
+
+    [...state.categories, { id: '__none__', name: 'Uncategorized' }].forEach(cat => {
+      const exs = byCategory[cat.id]; if (!exs?.length) return;
+      if (state.categories.length > 0) {
+        const hdr = el('div', 'text-xs font-semibold text-slate-400 pt-1 pb-0.5 px-1');
+        hdr.textContent = cat.id === '__none__' ? 'Uncategorized' : cat.name; exList.appendChild(hdr);
+      }
+      exs.forEach(ex => {
+        const isChecked = checked.size ? checked.has(ex.id) : routine.exercises.includes(ex.id);
+        const rowLabel = el('label', 'flex items-center gap-3 p-2.5 border border-slate-100 bg-slate-50 rounded-xl cursor-pointer active:bg-slate-100');
+        const cb = el('input', 'w-5 h-5 accent-slate-800 shrink-0'); cb.type = 'checkbox'; cb.value = ex.id; cb.checked = isChecked;
+        const emojiDiv = el('div', 'text-xl shrink-0'); emojiDiv.textContent = ex.emoji;
+        const nameDiv = el('div', 'font-medium text-sm'); nameDiv.textContent = ex.name;
+        rowLabel.append(cb, emojiDiv, nameDiv); exList.appendChild(rowLabel);
+      });
+    });
+  }
+
+  renderExList();
+  searchInput.addEventListener('input', () => renderExList(searchInput.value));
+
+  // Save
+  const saveBtn = el('button', 'w-full py-3 bg-slate-800 text-white rounded-xl font-medium touch-btn');
+  saveBtn.textContent = 'Save Changes';
+  saveBtn.addEventListener('click', () => {
+    const name = nameInput.value.trim(); if (!name) { nameInput.focus(); return; }
+    routine.name = name;
+    routine.colorIndex = selectedColorIndex;
+    routine.exercises = Array.from(exList.querySelectorAll('input[type=checkbox]:checked')).map(i => i.value);
+    saveState(state); closeModal(); renderRoutines(); renderCalendar();
+  });
+  content.appendChild(saveBtn);
+
+  showModal(content, 'Edit Routine');
   setTimeout(() => nameInput.focus(), 100);
 }
 
