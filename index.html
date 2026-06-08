@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <title>Workout Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      /* Prevent zoom on input focus (iOS) */
+      input, select, textarea {
+        font-size: 16px !important;
+      }
+
+      /* Calendar cells */
+      .calendar-day {
+        min-height: 52px;
+        touch-action: manipulation;
+      }
+
+      /* Smooth tab transitions */
+      .tab-btn.active {
+        background-color: #1e293b;
+        color: #fff;
+      }
+
+      /* Bottom nav active state */
+      .nav-item.active .nav-icon { color: #0ea5e9; }
+      .nav-item.active .nav-label { color: #0ea5e9; }
+
+      /* Color swatches */
+      .color-swatch {
+        width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent; cursor: pointer;
+        transition: transform .1s;
+      }
+      .color-swatch.selected { border-color: #1e293b; transform: scale(1.2); }
+
+      /* Routine color dot on calendar */
+      .routine-dot {
+        width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+      }
+
+      /* Calendar today highlight */
+      .cal-today { ring: 2px; }
+
+      /* Hide scrollbar on mobile modal */
+      .modal-scroll::-webkit-scrollbar { display: none; }
+      .modal-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+
+      /* Large touch buttons */
+      .touch-btn {
+        min-height: 44px;
+        min-width: 44px;
+      }
+
+      /* Workout card hover/tap */
+      .workout-card { transition: background .15s; }
+      .workout-card:active { background: #f1f5f9; }
+
+      /* Search clear button */
+      .search-clear { display: none; }
+      .search-clear.visible { display: flex; }
+    </style>
+  </head>
+  <body class="bg-slate-100 text-slate-900 min-h-screen flex flex-col pb-20">
+
+    <!-- Top Header -->
+    <header class="bg-white shadow-sm fixed top-0 left-0 right-0 z-20">
+      <div class="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
+        <h1 class="text-base font-bold tracking-tight">💪 Workout Tracker</h1>
+        <div id="header-actions"></div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="pt-16 max-w-2xl mx-auto px-3 w-full flex-1">
+      <div id="views">
+
+        <!-- Dashboard / Calendar -->
+        <section id="view-dashboard" class="space-y-3 py-3">
+
+          <!-- Calendar card -->
+          <div id="calendar" class="bg-white rounded-2xl p-3 shadow-sm">
+            <div class="flex items-center justify-between mb-3">
+              <button id="prev-month" class="touch-btn w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100 text-xl font-bold">‹</button>
+              <div id="month-label" class="font-semibold text-base"></div>
+              <button id="next-month" class="touch-btn w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100 text-xl font-bold">›</button>
+            </div>
+
+            <!-- Legend -->
+            <div id="calendar-legend" class="flex flex-wrap gap-2 mb-3 px-1"></div>
+
+            <!-- Weekday headers -->
+            <div class="grid grid-cols-7 gap-1 mb-1">
+              <div class="text-xs text-slate-400 text-center font-medium">Su</div>
+              <div class="text-xs text-slate-400 text-center font-medium">Mo</div>
+              <div class="text-xs text-slate-400 text-center font-medium">Tu</div>
+              <div class="text-xs text-slate-400 text-center font-medium">We</div>
+              <div class="text-xs text-slate-400 text-center font-medium">Th</div>
+              <div class="text-xs text-slate-400 text-center font-medium">Fr</div>
+              <div class="text-xs text-slate-400 text-center font-medium">Sa</div>
+            </div>
+            <div id="calendar-grid" class="grid grid-cols-7 gap-1"></div>
+          </div>
+
+          <!-- Recent workouts -->
+          <div id="today-workouts"></div>
+        </section>
+
+        <!-- PRs -->
+        <section id="view-prs" class="hidden py-3">
+          <h2 class="text-lg font-bold mb-3">Personal Records</h2>
+          <div id="prs-list" class="grid gap-2"></div>
+        </section>
+
+        <!-- Catalog -->
+        <section id="view-catalog" class="hidden space-y-3 py-3">
+
+          <!-- Search bar -->
+          <div class="relative flex items-center bg-white rounded-xl shadow-sm px-3">
+            <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19A8 8 0 1 1 11 3a8 8 0 0 1 0 16z"/>
+            </svg>
+            <input id="catalog-search" type="search" placeholder="Search exercises…" class="flex-1 py-3 px-2 bg-transparent outline-none text-sm" />
+            <button id="catalog-search-clear" class="search-clear items-center justify-center w-6 h-6 text-slate-400">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="flex items-center justify-between">
+            <h2 class="text-lg font-bold">Exercises</h2>
+            <button id="btn-new-exercise" class="touch-btn bg-slate-800 text-white px-4 py-2 rounded-xl text-sm font-medium">+ New</button>
+          </div>
+          <div id="catalog-list" class="grid gap-2"></div>
+
+          <div class="mt-2">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="text-lg font-bold">Routines</h3>
+              <button id="btn-new-routine" class="touch-btn bg-slate-700 text-white px-4 py-2 rounded-xl text-sm font-medium">+ New</button>
+            </div>
+            <div id="routines-list" class="grid gap-2"></div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+
+    <!-- Bottom Navigation -->
+    <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-20 safe-area-bottom">
+      <div class="max-w-2xl mx-auto grid grid-cols-3">
+        <button data-view="view-dashboard" class="nav-item active flex flex-col items-center justify-center py-3 gap-0.5">
+          <svg class="nav-icon w-6 h-6 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M13 5v6h6m-6 0H7m6 0v6"/>
+          </svg>
+          <span class="nav-label text-xs font-medium text-sky-500">Home</span>
+        </button>
+        <button data-view="view-prs" class="nav-item flex flex-col items-center justify-center py-3 gap-0.5">
+          <svg class="nav-icon w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3l14 9-14 9V3z"/>
+          </svg>
+          <span class="nav-label text-xs font-medium text-slate-400">PRs</span>
+        </button>
+        <button data-view="view-catalog" class="nav-item flex flex-col items-center justify-center py-3 gap-0.5">
+          <svg class="nav-icon w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h10"/>
+          </svg>
+          <span class="nav-label text-xs font-medium text-slate-400">Catalog</span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- Floating New Workout button (only on dashboard) -->
+    <button id="btn-new-workout"
+      class="fixed bottom-20 right-4 z-20 bg-slate-800 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-2xl touch-btn"
+      title="New Workout">
+      +
+    </button>
+
+    <!-- Modals -->
+    <div id="modal-root"></div>
+
+    <script src="src/app.js"></script>
+  </body>
+</html>
