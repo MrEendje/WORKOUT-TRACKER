@@ -310,6 +310,38 @@ function showView(id) {
 function renderTodayPlan() {
   const wrap = document.getElementById('today-plan'); if (!wrap) return;
   wrap.innerHTML = '';
+
+  // Draft recovery banner
+  const draft = getDraft();
+  if (draft && !isWorkoutActive) {
+    const draftRoutine = routines.find(r => r.id === draft.routineId);
+    if (draftRoutine) {
+      const elapsed = Math.floor((Date.now() - draft.startTime) / 60000);
+      const timeAgo = elapsed < 60 ? `${elapsed} min geleden` : `${Math.floor(elapsed/60)}u geleden`;
+      const banner = el('div', 'rounded-2xl bg-amber-50 border-2 border-amber-300 p-4 space-y-3 slide-up');
+      banner.innerHTML = `
+        <div class="flex items-center gap-2">
+          <span class="text-xl">⚡</span>
+          <div class="flex-1 min-w-0">
+            <div class="font-bold text-sm text-amber-800">Workout niet afgerond</div>
+            <div class="text-xs text-amber-600">${draftRoutine.name} · gestart ${timeAgo}</div>
+          </div>
+        </div>`;
+      const btnRow = el('div', 'grid grid-cols-2 gap-2');
+      const resumeBtn = el('button', 'py-2.5 bg-amber-400 text-white rounded-xl text-sm font-bold touch-btn');
+      resumeBtn.textContent = '▶  Doorgaan';
+      resumeBtn.addEventListener('click', () => openWorkoutView(draftRoutine, draft));
+      const discardBtn = el('button', 'py-2.5 bg-white text-amber-600 border border-amber-300 rounded-xl text-sm font-semibold touch-btn');
+      discardBtn.textContent = 'Verwijderen';
+      discardBtn.addEventListener('click', () => { clearDraft(); renderTodayPlan(); });
+      btnRow.append(resumeBtn, discardBtn);
+      banner.appendChild(btnRow);
+      wrap.appendChild(banner);
+    } else {
+      clearDraft();
+    }
+  }
+
   const today      = todayISO();
   const routineId  = schedules[today];
   const routine    = routineId ? routines.find(r => r.id === routineId) : null;
@@ -521,14 +553,33 @@ function showModal(content, title) {
 }
 function closeModal() { document.getElementById('modal-root').innerHTML = ''; }
 
+/* ── Workout draft (crash recovery) ─────────────────────── */
+const DRAFT_KEY = 'wt_draft';
+function saveDraft(d)  { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(d)); } catch {} }
+function clearDraft()  { localStorage.removeItem(DRAFT_KEY); }
+function getDraft()    { try { const r = localStorage.getItem(DRAFT_KEY); return r ? JSON.parse(r) : null; } catch { return null; } }
+function collectDraftSets() {
+  const data = {};
+  document.querySelectorAll('[data-ex-id]').forEach(block => {
+    const rows = [];
+    block.querySelectorAll('[data-set-row]').forEach(row => {
+      const ins = row.querySelectorAll('input');
+      rows.push({ v1: ins[0]?.value||'', v2: ins[1]?.value||'', done: row.querySelector('button')?.textContent==='✓' });
+    });
+    data[block.dataset.exId] = rows;
+  });
+  return data;
+}
+
 /* ── Workout ─────────────────────────────────────────────── */
 let workoutTimerInterval = null;
 let workoutStartTime     = null;
 
-function openWorkoutView(routine) {
+function openWorkoutView(routine, draft = null) {
   const section = document.getElementById('view-workout'); section.innerHTML = '';
   const today   = todayISO();
-  workoutStartTime = Date.now(); isWorkoutActive = true;
+  workoutStartTime = draft?.startTime || Date.now(); isWorkoutActive = true;
+  saveDraft({ routineId: routine.id, startTime: workoutStartTime, exerciseData: {}, notes: '' });
   const validIds = (routine.exercises||[]).filter(id => exercises.some(e => e.id === id));
   if (!validIds.length) { alert('Geen geldige oefeningen in deze routine.'); return; }
   const c = getRoutineColor(routine);
@@ -538,7 +589,7 @@ function openWorkoutView(routine) {
   const header = el('div','flex items-center justify-between bg-white rounded-2xl p-3 shadow-sm');
   const cancelBtn = el('button','text-sm text-slate-500 font-medium touch-btn px-2');
   cancelBtn.textContent = '← Annuleer';
-  cancelBtn.addEventListener('click', () => { if (confirm('Workout annuleren?')) { clearInterval(workoutTimerInterval); workoutTimerInterval=null; showView('view-dashboard'); }});
+  cancelBtn.addEventListener('click', () => { if (confirm('Workout annuleren?')) { clearInterval(workoutTimerInterval); workoutTimerInterval=null; clearDraft(); showView('view-dashboard'); }});
   const mid = el('div','flex flex-col items-center');
   const titleEl = el('div','font-bold text-sm text-slate-800'); titleEl.textContent = routine.name;
   const timerEl = el('div','text-xs font-mono tabular-nums text-slate-400 mt-0.5'); timerEl.textContent='0:00';
@@ -564,11 +615,16 @@ function openWorkoutView(routine) {
   }
   updateProgress();
 
+  function autosave() {
+    saveDraft({ routineId: routine.id, startTime: workoutStartTime, exerciseData: collectDraftSets(), notes: notesInput?.value||'' });
+  }
+
   function buildExBlock(exId, index) {
     const ex = exercises.find(e=>e.id===exId)||{id:exId,name:'Oefening',emoji:'🏋️',trackingType:'reps'};
     const tt = getTrackingType(ex);
     const prevW  = workouts.filter(w=>w.exercises.some(e=>e.exerciseId===exId)).slice(-1)[0];
     const prevSets = prevW ? prevW.exercises.find(e=>e.exerciseId===exId)?.sets||[] : [];
+    const draftRows = draft?.exerciseData?.[exId] || null;
     const block = el('div','bg-white rounded-2xl p-4 shadow-sm space-y-3'); block.dataset.exId=ex.id;
     block.innerHTML=`<div class="flex items-center gap-3"><div class="w-11 h-11 rounded-xl flex items-center justify-center text-2xl shrink-0" style="background:${c.bg}18">${ex.emoji}</div><div class="flex-1 min-w-0"><div class="font-bold text-sm text-slate-800 truncate">${ex.name}</div><div class="text-xs text-slate-400 mt-0.5">${tt.icon} ${tt.label}</div></div></div>`;
     if (prevSets.length) {
@@ -581,20 +637,24 @@ function openWorkoutView(routine) {
     block.appendChild(colHdr);
     const setsDiv=el('div','space-y-2'); block.appendChild(setsDiv);
 
-    function createSetRow(prev=null) {
+    function createSetRow(prev=null, draftRow=null) {
       const row=el('div','flex gap-2 items-center'); row.dataset.setRow='1';
       const c1=el('input','flex-1 min-w-0 p-2.5 border border-slate-200 rounded-xl text-center bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-sky-400 no-spinner');
       c1.type='number'; c1.placeholder=tt.ph1; c1.inputMode=tt.mode1; c1.autocomplete='off';
-      if(prev&&(prev.weight||prev.distance)) c1.value=prev.weight||prev.distance;
+      if(draftRow)                              c1.value=draftRow.v1;
+      else if(prev&&(prev.weight||prev.distance)) c1.value=prev.weight||prev.distance;
       const c2=el('input','flex-1 min-w-0 p-2.5 border border-slate-200 rounded-xl text-center bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-sky-400 no-spinner');
       c2.type='number'; c2.placeholder=tt.ph2; c2.inputMode=tt.mode2; c2.autocomplete='off';
-      if(prev&&(prev.reps||prev.seconds)) c2.value=prev.reps||prev.seconds;
+      if(draftRow)                            c2.value=draftRow.v2;
+      else if(prev&&(prev.reps||prev.seconds)) c2.value=prev.reps||prev.seconds;
+      c1.addEventListener('input', autosave); c2.addEventListener('input', autosave);
       const doneBtn=el('button','w-10 h-10 flex items-center justify-center rounded-xl shrink-0 touch-btn transition-all text-sm font-bold');
       doneBtn.setAttribute('type','button'); doneBtn.textContent='○'; doneBtn.style.cssText='color:#94a3b8;background:#f1f5f9';
+      if(draftRow?.done){ doneBtn.textContent='✓'; doneBtn.style.cssText=`color:#fff;background:${c.bg}`; }
       doneBtn.addEventListener('click',()=>{
         const done=doneBtn.textContent==='✓'; doneBtn.textContent=done?'○':'✓';
         doneBtn.style.cssText=done?'color:#94a3b8;background:#f1f5f9':`color:#fff;background:${c.bg}`;
-        checkDone(block,index);
+        checkDone(block,index); autosave();
       });
       row.append(c1,c2,doneBtn); return row;
     }
@@ -607,17 +667,20 @@ function openWorkoutView(routine) {
       });
       completedStatus[idx]=any; updateProgress();
     }
-    if(prevSets.length) prevSets.forEach(s=>setsDiv.appendChild(createSetRow(s)));
-    else setsDiv.appendChild(createSetRow());
+    if(draftRows?.length)      draftRows.forEach(dr=>setsDiv.appendChild(createSetRow(null, dr)));
+    else if(prevSets.length)   prevSets.forEach(s=>setsDiv.appendChild(createSetRow(s)));
+    else                       setsDiv.appendChild(createSetRow());
     const addBtn=el('button','w-full py-2.5 border border-dashed border-slate-300 rounded-xl text-sm text-slate-400 font-medium touch-btn mt-1');
     addBtn.setAttribute('type','button'); addBtn.textContent='+ Set toevoegen';
-    addBtn.addEventListener('click',()=>setsDiv.appendChild(createSetRow()));
+    addBtn.addEventListener('click',()=>{ setsDiv.appendChild(createSetRow()); autosave(); });
     block.appendChild(addBtn); return block;
   }
   validIds.forEach((id,i)=>exContainer.appendChild(buildExBlock(id,i)));
 
   const notesInput=el('textarea','w-full p-3 border border-slate-200 rounded-xl text-sm resize-none outline-none bg-white focus:ring-2 focus:ring-sky-400');
   notesInput.rows=2; notesInput.placeholder='Notities (optioneel)…';
+  if(draft?.notes) notesInput.value=draft.notes;
+  notesInput.addEventListener('input', autosave);
 
   let isSaving = false;
   async function saveWorkout() {
@@ -651,6 +714,7 @@ function openWorkoutView(routine) {
     }
     await addDoc(colWorkouts(currentUser.uid), workout);
     await checkAndUpdatePRs(workout);
+    clearDraft();
     clearInterval(workoutTimerInterval); workoutTimerInterval=null;
     showView('view-dashboard');
   }
