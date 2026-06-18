@@ -7,7 +7,8 @@ import { getAuth, signInWithEmailAndPassword,
          createUserWithEmailAndPassword,
          onAuthStateChanged, signOut,
          sendPasswordResetEmail }                           from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import { getFirestore, doc, getDoc, setDoc, addDoc,
+import { initializeFirestore, persistentLocalCache,
+         doc, getDoc, setDoc, addDoc,
          updateDoc, deleteDoc, collection, query,
          where, getDocs, onSnapshot, serverTimestamp,
          orderBy }                                          from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
@@ -23,7 +24,7 @@ const firebaseConfig = {
 };
 const firebaseApp  = initializeApp(firebaseConfig);
 const auth         = getAuth(firebaseApp);
-const db           = getFirestore(firebaseApp);
+const db           = initializeFirestore(firebaseApp, { localCache: persistentLocalCache() });
 
 // Secondary app for creating client accounts without signing out
 const secondaryApp  = initializeApp(firebaseConfig, 'secondary');
@@ -328,7 +329,8 @@ function renderTodayPlan() {
           </div>
         </div>`;
       const btnRow = el('div', 'grid grid-cols-2 gap-2');
-      const resumeBtn = el('button', 'py-2.5 bg-amber-400 text-white rounded-xl text-sm font-bold touch-btn');
+      const resumeBtn = el('button', 'py-2.5 text-white rounded-xl text-sm font-bold touch-btn glow-amber');
+      resumeBtn.style.background='linear-gradient(135deg,#f59e0b,#f97316)';
       resumeBtn.textContent = '▶  Doorgaan';
       resumeBtn.addEventListener('click', () => openWorkoutView(draftRoutine, draft));
       const discardBtn = el('button', 'py-2.5 bg-white text-amber-600 border border-amber-300 rounded-xl text-sm font-semibold touch-btn');
@@ -365,8 +367,7 @@ function renderTodayPlan() {
       exList.appendChild(row);
     });
     inner.appendChild(exList);
-    const startBtn = el('button', 'w-full py-3.5 rounded-xl text-white font-bold text-base touch-btn start-pulse');
-    startBtn.style.backgroundColor = c.bg;
+    const startBtn = el('button', 'w-full py-3.5 rounded-xl text-white font-bold text-base touch-btn start-pulse btn-shine');
     startBtn.textContent = '▶  Start Workout';
     startBtn.addEventListener('click', () => openWorkoutView(routine));
     inner.appendChild(startBtn);
@@ -413,10 +414,11 @@ function renderStats() {
     { val: volStr,            lbl: 'Vol/week',  accent: '#22c55e' },
     { val: `${streak}🔥`,    lbl: 'Streak',    accent: '#f97316' },
   ].forEach(c => {
-    const d = el('div', 'bg-white rounded-2xl shadow-sm text-center overflow-hidden');
+    const d = el('div', 'bg-white rounded-2xl shadow-sm text-center overflow-hidden card-lift');
     const bar = el('div', 'stat-accent'); bar.style.backgroundColor = c.accent;
     const body = el('div', 'px-2 py-3');
     body.innerHTML = `<div class="text-xl font-bold text-slate-800 tabular-nums">${c.val}</div><div class="text-xs text-slate-400 mt-0.5 font-medium">${c.lbl}</div>`;
+    d.style.boxShadow = `0 2px 12px ${c.accent}22`;
     d.append(bar, body); row.appendChild(d);
   });
 }
@@ -713,20 +715,21 @@ function openWorkoutView(routine, draft = null) {
       return;
     }
     await addDoc(colWorkouts(currentUser.uid), workout);
-    await checkAndUpdatePRs(workout);
+    const newPRs = await checkAndUpdatePRs(workout);
     clearDraft();
     clearInterval(workoutTimerInterval); workoutTimerInterval=null;
-    showView('view-dashboard');
+    showWorkoutCelebration(workout, newPRs);
   }
   saveQuick.addEventListener('click', saveWorkout);
-  const saveBtn=el('button','w-full py-4 rounded-2xl text-white font-bold text-base touch-btn shadow-sm');
-  saveBtn.style.backgroundColor=c.bg; saveBtn.textContent='💾  Workout opslaan';
+  const saveBtn=el('button','w-full py-4 rounded-2xl text-white font-bold text-base touch-btn btn-shine');
+  saveBtn.textContent='💾  Workout opslaan';
   saveBtn.addEventListener('click', saveWorkout);
   section.append(header,progressWrap,exContainer,notesInput,saveBtn);
   showView('view-workout');
 }
 
 async function checkAndUpdatePRs(workout) {
+  const newPRs = [];
   for(const ex of workout.exercises) {
     for(const s of ex.sets) {
       const exercise=exercises.find(e=>e.id===ex.exerciseId)||{trackingType:'reps'};
@@ -736,9 +739,12 @@ async function checkAndUpdatePRs(workout) {
       const prevVal=prev?(tt.value==='distance'?(prev.distance||0):tt.value==='time'?(prev.seconds||0):(prev.weight||0)):0;
       if(val>prevVal){
         await setDoc(doc(db,'users',currentUser.uid,'prs',ex.exerciseId), {weight:s.weight,reps:s.reps,seconds:s.seconds,distance:s.distance,date:workout.date});
+        if(exercise.name) newPRs.push({ name:exercise.name, emoji:exercise.emoji||'🏋️', val, unit:tt.value==='distance'?'m':tt.value==='time'?'s':'kg' });
+        break;
       }
     }
   }
+  return newPRs;
 }
 
 /* ── Workout summary ─────────────────────────────────────── */
@@ -780,7 +786,7 @@ function renderRecentWorkouts() {
   if(!workouts.length)return;
   const h=el('h3','text-sm font-bold text-slate-500 mb-2 px-1');h.textContent='Recente workouts';wrap.appendChild(h);
   [...workouts].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5).forEach(w=>{
-    const card=el('button','w-full bg-white p-3.5 rounded-2xl shadow-sm mb-2 flex items-center gap-3 text-left touch-btn active:scale-[.98] transition-transform');
+    const card=el('button','w-full bg-white p-3.5 rounded-2xl shadow-sm mb-2 flex items-center gap-3 text-left touch-btn active:scale-[.98] transition-all card-lift');
     const fw=exercises.find(x=>x.id===w.exercises[0]?.exerciseId);
     const iw=el('div','w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-lg shrink-0');iw.textContent=fw?fw.emoji:'🏋️';
     const left=el('div','flex-1 min-w-0');
@@ -1015,7 +1021,7 @@ function renderPRs() {
   entries.forEach(([exId,pr])=>{
     const ex=exercises.find(e=>e.id===exId)||{name:'Onbekend',emoji:'🏋️',trackingType:'reps'};
     const tt=getTrackingType(ex);
-    const row=el('div','bg-white p-4 rounded-2xl flex items-center gap-3 shadow-sm');
+    const row=el('div','bg-white p-4 rounded-2xl flex items-center gap-3 shadow-sm card-lift pr-pop');
     const iw=el('div','w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0 bg-amber-50');iw.textContent=ex.emoji;
     const info=el('div','flex-1 min-w-0');
     const nm=el('div','font-bold text-sm text-slate-800');nm.textContent=ex.name;
@@ -1027,6 +1033,75 @@ function renderPRs() {
     else valDiv.innerHTML=`<div class="text-lg font-black text-slate-800">${pr.weight??0}<span class="text-sm font-normal text-slate-400 ml-0.5">kg</span></div>${pr.reps?`<div class="text-xs text-slate-400">${pr.reps} reps</div>`:''}`;
     row.append(iw,info,valDiv);list.appendChild(row);
   });
+}
+
+/* ── Workout celebration ─────────────────────────────────── */
+function showWorkoutCelebration(workout, newPRs = []) {
+  const totalSets = workout.exercises.flatMap(e => e.sets).length;
+  const totalVol  = workout.exercises.flatMap(e => e.sets.map(s => (s.weight||0)*(s.reps||1))).reduce((a,b)=>a+b,0);
+  const volStr    = totalVol >= 1000 ? `${(totalVol/1000).toFixed(1)}t` : `${Math.round(totalVol)}kg`;
+
+  const overlay = el('div', 'fixed inset-0 z-50 flex flex-col items-center justify-center');
+  overlay.style.cssText = 'background:linear-gradient(160deg,#0f172a 0%,#1e3a5f 60%,#0f172a 100%)';
+  document.body.appendChild(overlay);
+
+  // Confetti
+  const colors = ['#0ea5e9','#22c55e','#f97316','#a855f7','#ec4899','#f59e0b'];
+  for (let i = 0; i < 60; i++) {
+    const p = document.createElement('div');
+    const size = 6 + Math.random() * 8;
+    p.style.cssText = `position:fixed;width:${size}px;height:${size}px;border-radius:${Math.random()>0.5?'50%':'3px'};
+      background:${colors[Math.floor(Math.random()*colors.length)]};
+      left:${Math.random()*100}%;top:-20px;opacity:1;
+      animation:confetti-fall ${1.5+Math.random()*2.5}s ${Math.random()*1.2}s linear forwards`;
+    overlay.appendChild(p);
+  }
+
+  const card = el('div', 'relative z-10 flex flex-col items-center px-6 py-8 text-center max-w-sm w-full mx-4 rounded-3xl slide-up');
+  card.style.cssText = 'background:rgba(255,255,255,0.07);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.15)';
+
+  const trophy = el('div', 'text-6xl mb-2'); trophy.textContent = '💪';
+  trophy.style.animation = 'float 2s ease-in-out infinite';
+  const title = el('div', 'text-2xl font-black text-white mb-1'); title.textContent = 'Goed gedaan!';
+  const sub   = el('div', 'text-sm text-slate-300 mb-6'); sub.textContent = `${workout.date} · ${workout.durationMin||0} min`;
+
+  const stats = el('div', 'grid grid-cols-3 gap-3 w-full mb-6');
+  [
+    { val: workout.exercises.length, lbl: 'Oefeningen', icon: '🏋️' },
+    { val: totalSets,                lbl: 'Sets',       icon: '🔁' },
+    { val: volStr,                   lbl: 'Volume',     icon: '⚖️' },
+  ].forEach(s => {
+    const d = el('div', 'rounded-2xl py-3 px-2 flex flex-col items-center');
+    d.style.background = 'rgba(255,255,255,0.1)';
+    d.innerHTML = `<div class="text-xl mb-0.5">${s.icon}</div><div class="text-lg font-black text-white tabular-nums">${s.val}</div><div class="text-xs text-slate-400">${s.lbl}</div>`;
+    stats.appendChild(d);
+  });
+
+  card.append(trophy, title, sub, stats);
+
+  if (newPRs.length) {
+    const prSec = el('div', 'w-full mb-6 space-y-2');
+    const prHdr = el('div', 'text-xs font-bold text-amber-400 uppercase tracking-widest mb-1 flex items-center gap-1');
+    prHdr.innerHTML = '🏆 Nieuwe records';
+    prSec.appendChild(prHdr);
+    newPRs.forEach(pr => {
+      const row = el('div', 'flex items-center gap-2 rounded-xl px-3 py-2');
+      row.style.background = 'rgba(245,158,11,0.15)';
+      row.innerHTML = `<span class="text-xl">${pr.emoji}</span><span class="flex-1 text-sm font-semibold text-white text-left">${pr.name}</span><span class="text-sm font-black text-amber-400">${pr.val} ${pr.unit}</span>`;
+      prSec.appendChild(row);
+    });
+    card.appendChild(prSec);
+  }
+
+  const doneBtn = el('button', 'w-full py-4 rounded-2xl font-black text-white text-base touch-btn btn-shine');
+  doneBtn.textContent = 'Klaar 🏠';
+  doneBtn.addEventListener('click', () => {
+    overlay.style.transition = 'opacity .3s';
+    overlay.style.opacity = '0';
+    setTimeout(() => { overlay.remove(); showView('view-dashboard'); }, 300);
+  });
+  card.appendChild(doneBtn);
+  overlay.appendChild(card);
 }
 
 /* ── Body stats / Progression ───────────────────────────── */
@@ -1172,7 +1247,7 @@ async function showClientProgressionModal(client) {
   const stats = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   loading.remove();
 
-  const addBtn = el('button', 'w-full py-3 bg-green-500 text-white rounded-xl font-bold touch-btn shadow-sm');
+  const addBtn = el('button', 'w-full py-3 text-white rounded-xl font-bold touch-btn btn-shine-green glow-green');
   addBtn.textContent = '+ Meting toevoegen';
   addBtn.addEventListener('click', () => showAddMeasurementModal(client));
   closeBtn.before(addBtn);
@@ -1197,6 +1272,9 @@ async function showClientProgressionModal(client) {
       if (s.weight != null)        vals.innerHTML += `<span>⚖️ <b>${s.weight}</b> kg</span>`;
       if (s.fatPercent != null)    vals.innerHTML += `<span>🟠 <b>${s.fatPercent}</b>%</span>`;
       if (s.musclePercent != null) vals.innerHTML += `<span>🟢 <b>${s.musclePercent}</b>%</span>`;
+      const editBtn = el('button', 'w-7 h-7 flex items-center justify-center rounded-lg bg-sky-50 text-sky-500 shrink-0 touch-btn');
+      editBtn.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 112.828 2.828L11.828 15.828a2 2 0 01-1.414.586H9v-2a2 2 0 01.586-1.414z"/></svg>`;
+      editBtn.addEventListener('click', () => showAddMeasurementModal(client, s));
       const delBtn = el('button', 'w-7 h-7 flex items-center justify-center rounded-lg bg-red-50 text-red-400 shrink-0 touch-btn');
       delBtn.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7h6m2 0a1 1 0 00-1-1h-4a1 1 0 00-1 1H5"/></svg>`;
       delBtn.addEventListener('click', async () => {
@@ -1205,37 +1283,42 @@ async function showClientProgressionModal(client) {
         closeModal();
         showClientProgressionModal(client);
       });
-      row.append(date, vals, delBtn);
+      row.append(date, vals, editBtn, delBtn);
       listSec.appendChild(row);
     });
     addBtn.before(listSec);
   }
 }
 
-function showAddMeasurementModal(client) {
+function showAddMeasurementModal(client, existing = null) {
+  const isEdit = !!existing;
   const formContent = el('div', 'space-y-3');
+
   const dateInput = el('input', 'w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-green-400');
-  dateInput.type = 'date'; dateInput.value = todayISO(); formContent.appendChild(dateInput);
+  dateInput.type = 'date'; dateInput.value = existing?.date || todayISO();
+  if (isEdit) dateInput.disabled = true;
+  formContent.appendChild(dateInput);
 
   const fields = [
-    { label: 'Gewicht (kg)',       placeholder: 'bv. 75.5', id: 'bsf-weight' },
-    { label: 'Vetpercentage (%)',   placeholder: 'bv. 18.5', id: 'bsf-fat'    },
-    { label: 'Spierpercentage (%)', placeholder: 'bv. 42.0', id: 'bsf-muscle' },
+    { label: 'Gewicht (kg)',        placeholder: 'bv. 75.5', id: 'bsf-weight', key: 'weight'        },
+    { label: 'Vetpercentage (%)',    placeholder: 'bv. 18.5', id: 'bsf-fat',    key: 'fatPercent'    },
+    { label: 'Spierpercentage (%)', placeholder: 'bv. 42.0', id: 'bsf-muscle', key: 'musclePercent' },
   ];
   fields.forEach(f => {
     const lbl = el('label', 'block text-sm font-semibold text-slate-600'); lbl.textContent = f.label;
     const inp = el('input', 'w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-green-400 font-medium');
     inp.id = f.id; inp.type = 'number'; inp.step = '0.1'; inp.placeholder = f.placeholder;
+    if (isEdit && existing[f.key] != null) inp.value = existing[f.key];
     formContent.append(lbl, inp);
   });
 
-  const saveBtn = el('button', 'w-full py-3 bg-green-500 text-white rounded-xl font-semibold touch-btn shadow-sm');
-  saveBtn.textContent = 'Opslaan';
+  const saveBtn = el('button', 'w-full py-3 text-white rounded-xl font-semibold touch-btn btn-shine-green');
+  saveBtn.textContent = isEdit ? 'Opslaan' : 'Toevoegen';
   saveBtn.addEventListener('click', async () => {
-    const date       = dateInput.value || todayISO();
-    const weight     = parseFloat(document.getElementById('bsf-weight').value);
-    const fatPct     = parseFloat(document.getElementById('bsf-fat').value);
-    const musclePct  = parseFloat(document.getElementById('bsf-muscle').value);
+    const date      = dateInput.value || todayISO();
+    const weight    = parseFloat(document.getElementById('bsf-weight').value);
+    const fatPct    = parseFloat(document.getElementById('bsf-fat').value);
+    const musclePct = parseFloat(document.getElementById('bsf-muscle').value);
     if (isNaN(weight) && isNaN(fatPct) && isNaN(musclePct)) { alert('Vul minimaal één waarde in.'); return; }
     const data = { date, updatedAt: serverTimestamp() };
     if (!isNaN(weight))    data.weight        = weight;
@@ -1247,7 +1330,7 @@ function showAddMeasurementModal(client) {
     showClientProgressionModal(client);
   });
   formContent.appendChild(saveBtn);
-  showModal(formContent, 'Meting toevoegen');
+  showModal(formContent, isEdit ? `Meting bewerken — ${formatDate(existing.date)}` : 'Meting toevoegen');
   setTimeout(() => document.getElementById('bsf-weight')?.focus(), 100);
 }
 
