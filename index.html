@@ -19,6 +19,9 @@
       .touch-btn { min-height:44px;min-width:44px; }
       .search-clear { display:none; }
       .search-clear.visible { display:flex; }
+      .no-spinner::-webkit-outer-spin-button,
+      .no-spinner::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+      .no-spinner { -moz-appearance:textfield; }
 
       @keyframes pulse-glow { 0%,100%{box-shadow:0 0 0 0 rgba(14,165,233,.45)} 50%{box-shadow:0 0 0 12px rgba(14,165,233,0)} }
       .start-pulse { animation: pulse-glow 2s infinite; }

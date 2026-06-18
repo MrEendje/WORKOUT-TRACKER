@@ -5,7 +5,8 @@
 import { initializeApp }                                    from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getAuth, signInWithEmailAndPassword,
          createUserWithEmailAndPassword,
-         onAuthStateChanged, signOut }                      from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+         onAuthStateChanged, signOut,
+         sendPasswordResetEmail }                           from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import { getFirestore, doc, getDoc, setDoc, addDoc,
          updateDoc, deleteDoc, collection, query,
          where, getDocs, onSnapshot, serverTimestamp,
@@ -582,10 +583,10 @@ function openWorkoutView(routine) {
 
     function createSetRow(prev=null) {
       const row=el('div','flex gap-2 items-center'); row.dataset.setRow='1';
-      const c1=el('input','flex-1 p-2.5 border border-slate-200 rounded-xl text-center bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-sky-400');
+      const c1=el('input','flex-1 min-w-0 p-2.5 border border-slate-200 rounded-xl text-center bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-sky-400 no-spinner');
       c1.type='number'; c1.placeholder=tt.ph1; c1.inputMode=tt.mode1; c1.autocomplete='off';
       if(prev&&(prev.weight||prev.distance)) c1.value=prev.weight||prev.distance;
-      const c2=el('input','flex-1 p-2.5 border border-slate-200 rounded-xl text-center bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-sky-400');
+      const c2=el('input','flex-1 min-w-0 p-2.5 border border-slate-200 rounded-xl text-center bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-sky-400 no-spinner');
       c2.type='number'; c2.placeholder=tt.ph2; c2.inputMode=tt.mode2; c2.autocomplete='off';
       if(prev&&(prev.reps||prev.seconds)) c2.value=prev.reps||prev.seconds;
       const doneBtn=el('button','w-10 h-10 flex items-center justify-center rounded-xl shrink-0 touch-btn transition-all text-sm font-bold');
@@ -1206,7 +1207,11 @@ async function renderClients() {
     const delBtn=el('button','w-9 h-9 flex items-center justify-center rounded-xl bg-red-50 text-red-400 touch-btn shrink-0');
     delBtn.innerHTML=`<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7h6m2 0a1 1 0 00-1-1h-4a1 1 0 00-1 1H5"/></svg>`;
     delBtn.addEventListener('click',()=>confirmDeleteClient(client));
-    top.append(avatar,info,delBtn);
+    const pwBtn=el('button','w-9 h-9 flex items-center justify-center rounded-xl bg-sky-50 text-sky-500 touch-btn shrink-0');
+    pwBtn.title='Wachtwoord reset';
+    pwBtn.innerHTML=`<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>`;
+    pwBtn.addEventListener('click',()=>showResetPasswordModal(client));
+    top.append(avatar,info,pwBtn,delBtn);
     const btns=el('div','grid grid-cols-3 gap-2');
     const insightsBtn=el('button','py-2 bg-purple-50 text-purple-500 rounded-xl text-xs font-bold touch-btn');insightsBtn.textContent='📊 Inzichten';
     insightsBtn.addEventListener('click',()=>showClientInsightsModal(client));
@@ -1380,6 +1385,33 @@ async function showClientScheduleModal(client) {
   closeBtn.textContent='Klaar';closeBtn.addEventListener('click',closeModal);
   content.appendChild(closeBtn);
   showModal(content,`Schema — ${client.name||client.email}`);
+}
+
+async function showResetPasswordModal(client) {
+  const content = el('div', 'space-y-3');
+  const info = el('p', 'text-sm text-slate-600');
+  info.textContent = `Firebase stuurt een wachtwoord reset e-mail naar ${client.email}. De klant kan dan zelf een nieuw wachtwoord instellen.`;
+  content.appendChild(info);
+  const errorEl = el('p', 'text-red-500 text-sm hidden'); content.appendChild(errorEl);
+  const sendBtn = el('button', 'w-full py-3 bg-sky-500 text-white rounded-xl font-semibold touch-btn shadow-sm');
+  sendBtn.textContent = '📧  Reset e-mail versturen';
+  sendBtn.addEventListener('click', async () => {
+    sendBtn.textContent = 'Bezig…'; sendBtn.disabled = true;
+    try {
+      await sendPasswordResetEmail(auth, client.email);
+      closeModal();
+      alert(`Reset e-mail verstuurd naar ${client.email}`);
+    } catch (err) {
+      errorEl.textContent = 'Versturen mislukt: ' + err.message;
+      errorEl.classList.remove('hidden');
+      sendBtn.textContent = '📧  Reset e-mail versturen'; sendBtn.disabled = false;
+    }
+  });
+  content.appendChild(sendBtn);
+  const cancelBtn = el('button', 'w-full py-3 bg-slate-100 text-slate-600 rounded-xl font-semibold touch-btn');
+  cancelBtn.textContent = 'Annuleren'; cancelBtn.addEventListener('click', closeModal);
+  content.appendChild(cancelBtn);
+  showModal(content, `Wachtwoord reset — ${client.name || client.email}`);
 }
 
 async function confirmDeleteClient(client) {
